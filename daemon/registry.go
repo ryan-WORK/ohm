@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"sync"
+	"time"
 )
 
 type ServerKey struct {
@@ -10,9 +11,10 @@ type ServerKey struct {
 }
 
 type LSPServer struct {
-	PID     int
-	Refs    int
-	Process *Process
+	PID          int
+	Refs         int
+	Process      *Process
+	LastResponse time.Time
 }
 
 type Registry struct {
