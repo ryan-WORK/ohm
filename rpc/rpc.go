@@ -78,3 +78,13 @@ func (h *Handler) Decode(r io.Reader) (*Message, error) {
 
 	return msg, nil
 }
+
+func (h *Handler) DecodeParam(dst interface{}, src interface{}) error {
+	var buf []byte
+	enc := codec.NewEncoderBytes(&buf, &h.mh)
+	if err := enc.Encode(src); err != nil {
+		return err
+	}
+	dec := codec.NewDecoderBytes(buf, &h.mh)
+	return dec.Decode(dst)
+}

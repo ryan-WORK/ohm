@@ -1,12 +1,14 @@
 package daemon
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/ryan-WORK/ohm/rpc"
 )
 
 type Daemon struct {
@@ -16,8 +18,8 @@ type Daemon struct {
 }
 
 type DetachMsg struct {
-	RootDir    string `json:"root_dir"`
-	LanguageID string `json:"language_id"`
+	RootDir    string `codec:"root_dir"`
+	LanguageID string `codec:"language_id"`
 }
 
 type Msg struct {
@@ -25,9 +27,10 @@ type Msg struct {
 }
 
 type AttachMsg struct {
-	RootDir    string `json:"root_dir"`
-	LanguageID string `json:"language_id"`
-	PID        int    `json:"pid"`
+	RootDir    string   `codec:"root_dir"`
+	LanguageID string   `codec:"language_id"`
+	Command    string   `codec:"command"`
+	Args       []string `codec:"args"`
 }
 
 func Start(socketPath string) error {
@@ -91,9 +94,17 @@ func (d *Daemon) handleAttach(conn net.Conn, msg AttachMsg) {
 		return
 	}
 
-	server := &LSPServer{PID: msg.PID, Refs: 1}
+	proc, err := SpawnLSP(msg.Command, msg.Args...)
+	if err != nil {
+		fmt.Fprintf(conn, "error: spawn: %s\n", err)
+		return
+	}
+	server := &LSPServer{PID: proc.PID, Refs: 1, Process: proc}
 	d.registry.Register(key, server)
-	fmt.Fprintf(conn, "registered pid=%d lang=%s\n", msg.PID, msg.LanguageID)
+	fmt.Fprintf(conn, "registered pid=%d lang=%s\n", proc.PID, msg.LanguageID)
+
+	go io.Copy(proc.Stdin, conn)  // neovim → LSP
+	go io.Copy(conn, proc.Stdout) // LSP → neovim
 }
 
 func (d *Daemon) handleDetach(conn net.Conn, msg DetachMsg) {
@@ -135,30 +146,19 @@ func (d *Daemon) handleConn(conn net.Conn) {
 	defer conn.Close()
 	conn.Write([]byte("ohm connected\n"))
 
-	buf := make([]byte, 4096)
+	h := rpc.NewHandler()
 	for {
-		n, err := conn.Read(buf)
+		msg, err := h.Decode(conn)
 		if err != nil {
 			return
 		}
-
-		var base Msg
-		if err := json.Unmarshal(buf[:n], &base); err != nil {
-			fmt.Fprintf(conn, "error: bad message: %s\n", err)
-			continue
-		}
-
-		switch base.Type {
+		switch msg.Method {
 		case "attach":
-			var msg AttachMsg
-			json.Unmarshal(buf[:n], &msg)
-			d.handleAttach(conn, msg)
+			// extract params[0] as map[string]interface{}
 		case "detach":
-			var msg DetachMsg
-			json.Unmarshal(buf[:n], &msg)
-			d.handleDetach(conn, msg)
+			// same
 		default:
-			fmt.Fprintf(conn, "error: unknown type: %s\n", base.Type)
+			fmt.Fprintf(conn, "error: unknown method: %s\n", msg.Method)
 		}
 	}
 }
