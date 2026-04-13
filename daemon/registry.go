@@ -10,8 +10,9 @@ type ServerKey struct {
 }
 
 type LSPServer struct {
-	PID  int
-	Refs int
+	PID     int
+	Refs    int
+	Process *Process
 }
 
 type Registry struct {
