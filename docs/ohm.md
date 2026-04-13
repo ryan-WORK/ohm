@@ -30,126 +30,139 @@ Neovim (Lua shim)
 
 ---
 
-## Done
+## V1 — Shipped
 
-### Skeleton + entry point
-- `main.go` starts daemon, passes socket path
-- `go run .` boots and blocks on socket
+### Entry point (`main.go`)
+- Accepts optional socket path as CLI arg — defaults to `./tmp/ohm.sock`
+- Passes path to `daemon.Start`
 
 ### Unix socket server (`daemon/daemon.go`)
-- Listens on unix socket path
-- Removes stale socket on start
-- Accepts connections in a loop
-- Spawns goroutine per connection (`go d.handleConn(conn)`)
-- `Daemon` struct holds shared registry — state shared across goroutines without globals
-
-### Connection handling
-- Sends `ohm connected` on connect
-- Reads in loop with `conn.Read` into `[]byte` buffer
-- Prints received bytes to stdout
-- Returns cleanly on disconnect
+- Listens on unix socket, removes stale socket on start
+- Goroutine per connection via `go d.handleConn(conn)`
+- `Daemon` struct holds shared registry + pending kill map
 
 ### Server registry (`daemon/registry.go`)
 - `ServerKey{RootDir, LanguageID}` — deduplication key
 - `Registry` with `sync.Mutex` — safe concurrent access
-- Full CRUD: `Get`, `Register`, `Remove`
+- `Get`, `Register`, `Remove`, `IncrRef`, `DecrRef`
 
 ### Process management (`daemon/process.go`)
-- `SpawnLSP(command, args...)` — starts child process, returns PID
-- `Kill()` — sends kill signal
-- `Wait()` — reaps process, prevents zombies
-- Uses `cmd.Start()` not `cmd.Run()` — non-blocking spawn
-
-### Go concepts covered
-- Package structure and `package main` vs library packages
-- Error return convention (`error` as value, `fmt.Errorf("%w", err)` wrapping)
-- `defer` — cleanup at function exit
-- Goroutines — `go func()`, ~2KB cost vs thread's ~1MB
-- Structs and receiver methods
-- `sync.Mutex` — protecting shared state
-- `make(map[K]V)` — map initialization
-- Variadic args (`args ...string`)
-- `cmd.Start()` vs `cmd.Run()`
-- `buf[:n]` — always slice to actual bytes read
-
----
+- `SpawnLSP(command, args...)` — non-blocking spawn via `cmd.Start()`
+- `stdin`/`stdout` pipes exposed on `Process` struct
+- `Kill()`, `Wait()`
+- `SendNotification(method, params)` — writes LSP-framed JSON-RPC to stdin
+- `MemoryMB()` — reads `VmRSS` from `/proc/{pid}/status`
 
 ### LSP binary resolution
-- Daemon does NOT resolve LSP paths — Neovim does
-- Lua shim intercepts `LspAttach`, sends PID + metadata to daemon
-- Daemon takes over lifecycle from there — no config needed from user
-
----
-
-## Done (continued)
-
-### Message protocol (`daemon/daemon.go`)
-- `Msg{Type}` — peek type before full decode
-- `AttachMsg{RootDir, LanguageID, PID}` — register new server
-- `DetachMsg{RootDir, LanguageID}` — decrement refs, schedule kill
-- JSON over unix socket for now — swaps to msgpack-rpc when Lua shim is built
-
-### Ref counting
-- `IncrRef` / `DecrRef` on registry
-- Attach to existing server → reuse, increment refs
-- Detach → decrement refs
-- refs = 0 → start grace period timer
-
-### Grace period kill (`daemon/daemon.go`)
-- `pendingKill map[ServerKey]*time.Timer` on Daemon struct
-- `time.AfterFunc(10s, ...)` — fires kill in goroutine after delay
-- Reattach within grace period → `timer.Stop()` cancels kill
-- refs = 0 + grace expired → `os.FindProcess` + `Kill()` + registry remove
+- Daemon does not resolve LSP paths — Neovim does
+- Lua shim reads `client.config.cmd` from `LspAttach` and sends it in the attach message
 
 ### msgpack-rpc decoder (`rpc/rpc.go`)
 - `Message{Type, MsgID, Method, Params}` — unified type for requests + notifications
 - `Handler.Decode(r io.Reader)` — reads one frame, blocks until data
-- Handles type 0 (request) and type 2 (notification)
-- Dep: `github.com/ugorji/go/codec`
+- `Handler.DecodeParam(dst, src)` — round-trip re-decode into typed struct
+- `toUint64` handles ugorji's variable integer types
+- `RawToString = true` — raw bytes decode as strings
 
----
+### Control message protocol (`daemon/daemon.go`)
+- `AttachMsg{RootDir, LanguageID, Command, Args}` — spawn or reuse server
+- `DetachMsg{RootDir, LanguageID, URI}` — decrement refs, send didClose
+- msgpack-rpc over unix socket, dispatched on `msg.Method`
 
-## TODO
+### Connection ownership model
+- First message on a connection must be attach or detach
+- After a successful attach (new server): proxy goroutines take ownership of conn, `handleConn` returns — no read race
+- Reuse path (existing server): increments refs, closes conn — V2 adds fan-out multiplexer
 
-### Wire msgpack-rpc into daemon
-- [ ] Replace `handleConn` JSON parsing with `rpc.Handler.Decode`
-- [ ] Dispatch on `msg.Method` ("attach", "detach") instead of `msg.Type` JSON field
-- [ ] Run `go get github.com/ugorji/go/codec`
+### Ref counting + grace period kill
+- `IncrRef` / `DecrRef` on registry
+- refs = 0 → `time.AfterFunc(10s, kill)` — grace period
+- Reattach within grace → `timer.Stop()` cancels kill
 
-### LSP stdio pipe
-- [ ] Wire `cmd.Stdin` / `cmd.Stdout` to pass JSON-RPC through
-- [ ] Proxy between Neovim connection and LSP server process
-
-### Remaining order
-1. `go get github.com/ugorji/go/codec`
-2. Wire msgpack-rpc decoder into `handleConn`
-3. LSP stdio pipe proxy
-4. Process supervisor / watchdog
-5. Lua shim
-
-### Process supervisor
-- [ ] Track memory via `/proc/{pid}/status`
-- [ ] Last-response timestamp (detect frozen servers)
-- [ ] Watchdog goroutine — periodic health check loop
+### LSP stdio proxy
+- `io.Copy(proc.Stdin, conn)` — Neovim → LSP
+- Stdout reader loop — timestamps `server.LastResponse` on each response, writes to conn
 
 ### Diagnostic fence
-- [ ] On detach, send `textDocument/didClose` before clearing diagnostics
-- [ ] Brief mutex hold to eliminate stuck-diagnostic race
+- On detach: sends `textDocument/didClose` to LSP stdin before decrementing refs
+- Eliminates stuck-diagnostic race condition
 
-### Lua shim
-- [ ] `jobstart()` to launch ohm binary
-- [ ] Unix socket channel to daemon
-- [ ] Forward `LspAttach`, `LspDetach`, `BufDelete` via `vim.rpcnotify()`
-- [ ] User commands: `:OhmStatus`, `:OhmRestart`
+### Process supervisor (`daemon/supervisor.go`)
+- Watchdog goroutine — checks all servers every 30s
+- Kills servers exceeding 1500MB RSS
+- Kills servers with no response for 5+ minutes
 
-### MVP definition
-1. Binary speaks msgpack-rpc over unix socket
-2. Registry deduplicates by `{root_dir, language_id}`
-3. Ref-counted lifecycle
-4. Lua shim wires attach/detach events
+### Lua shim (`lua/ohm/`)
+- `client.lua` — `sockconnect` + `rpcnotify` wrappers
+- `init.lua` — `setup()`, `LspAttach`/`LspDetach`/`BufDelete` autocmds, `:OhmStatus`, `:OhmRestart`
+- `plugin/ohm.lua` — lazy.nvim entry point
+- `build.sh` — compiles binary into `bin/ohm` for lazy.nvim `build` hook
+
+### CI/CD (`.github/workflows/ci.yml`)
+- Test + build on push/PR
+- Release job: cross-compiles 4 binaries, uploads to GitHub Releases on tag push
+
+### Tests
+- `daemon/registry_test.go` — CRUD, ref counting, missing key
+- `daemon/process_test.go` — LSP notification framing
+- `rpc/rpc_test.go` — notification decode, request decode, `DecodeParam` round-trip
 
 ---
 
 ## Language: Go
 
 Go chosen over Zig (original plan) as learning vehicle. Goroutines map naturally to the per-connection concurrency model. Ecosystem has ready msgpack libraries. Single binary output, no GC pause issues at daemon scale.
+
+---
+
+## V2 Roadmap
+
+### Must-fix for correctness
+
+#### Fan-out multiplexer + request ID rewriting
+Current MVP limitation: only one Neovim connection can proxy to a given LSP server. A second buffer attaching to the same server (reuse path) increments refs but gets no proxy connection — Neovim falls back to its own LSP client.
+
+Full fix requires:
+- `LSPServer.clients []net.Conn` — all connected Neovim conns for this server
+- Single `proc.Stdout` reader that broadcasts to all clients
+- **Request ID rewriting** — each client gets a remapped ID namespace; daemon translates IDs on the way in (Neovim → LSP) and out (LSP → Neovim). Without this, two clients sending request ID 42 both receive the response for 42, corrupting both sessions.
+
+This is the largest V2 item.
+
+#### Graceful LSP shutdown
+Currently uses `os.Kill` (SIGKILL). Should send LSP `shutdown` request + `exit` notification first, giving the server a chance to flush state. Fall back to SIGKILL after a timeout.
+
+#### Shim reconnect
+If the daemon restarts, the Lua shim should detect the broken connection and reconnect automatically rather than requiring a Neovim restart.
+
+### Reliability
+
+#### Respawn on crash
+Watchdog kills frozen/bloated servers but does not respawn them. Neovim is left with no LSP. V2 should respawn and re-proxy.
+
+#### LSP stderr capture
+`proc.Stderr` is currently discarded. Capture it and surface via `:OhmStatus` or a log file — essential for debugging gopls panics.
+
+#### Broadcast backpressure
+`server.broadcast()` writing to slow Neovim clients will block all other clients sharing that server. Use non-blocking writes with per-client send buffers or drop + disconnect slow clients.
+
+### Observability
+
+#### Rich `:OhmStatus`
+Show all running servers: PID, language, memory (MB), ref count, last response time, uptime.
+
+#### Structured logging
+Replace `fmt.Printf` with `slog` — log levels, structured fields, optional JSON output for tooling.
+
+### Protocol
+
+#### Proper msgpack-rpc responses
+Currently writes plain text (`"registered pid=123\n"`) back to Neovim. Should send type 1 (response) msgpack-rpc frames so the Lua shim can handle errors programmatically.
+
+### Packaging
+
+#### Pre-built binaries
+Publish `ohm-linux-amd64`, `ohm-linux-arm64`, `ohm-darwin-amd64`, `ohm-darwin-arm64` to GitHub Releases on tag push. Lua `build` function downloads the correct binary instead of requiring Go.
+
+#### mason.nvim registry
+Submit to mason.nvim registry so users can install via `:MasonInstall ohm`.

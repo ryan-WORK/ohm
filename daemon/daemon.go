@@ -20,11 +20,9 @@ type Daemon struct {
 type DetachMsg struct {
 	RootDir    string `codec:"root_dir"`
 	LanguageID string `codec:"language_id"`
+	URI        string `codec:"uri"`
 }
 
-type Msg struct {
-	Type string `json:"type"` // "attach" or "detach"
-}
 
 type AttachMsg struct {
 	RootDir    string   `codec:"root_dir"`
@@ -48,6 +46,7 @@ func Start(socketPath string) error {
 	}
 
 	fmt.Println("listening on", socketPath)
+	d.startWatchdog()
 
 	for {
 		conn, err := ln.Accept()
@@ -76,7 +75,9 @@ func (r *Registry) DecrRef(key ServerKey) int {
 	return 0
 }
 
-func (d *Daemon) handleAttach(conn net.Conn, msg AttachMsg) {
+// handleAttach returns true if proxy goroutines were started and now own conn.
+// The caller must return immediately when true — do not read from conn again.
+func (d *Daemon) handleAttach(conn net.Conn, msg AttachMsg) bool {
 	key := ServerKey{RootDir: msg.RootDir, LanguageID: msg.LanguageID}
 
 	// cancel pending kill if one is waiting
@@ -88,23 +89,41 @@ func (d *Daemon) handleAttach(conn net.Conn, msg AttachMsg) {
 	}
 	d.mu.Unlock()
 
+	// reuse: server already running, just increment refs.
+	// Connection closes — Neovim's LSP client talks directly to the existing server.
 	if existing, ok := d.registry.Get(key); ok {
 		d.registry.IncrRef(key)
 		fmt.Fprintf(conn, "reused pid=%d lang=%s refs=%d\n", existing.PID, msg.LanguageID, existing.Refs)
-		return
+		return false
 	}
 
 	proc, err := SpawnLSP(msg.Command, msg.Args...)
 	if err != nil {
 		fmt.Fprintf(conn, "error: spawn: %s\n", err)
-		return
+		return false
 	}
-	server := &LSPServer{PID: proc.PID, Refs: 1, Process: proc}
+	server := &LSPServer{PID: proc.PID, Refs: 1, Process: proc, LastResponse: time.Now()}
 	d.registry.Register(key, server)
 	fmt.Fprintf(conn, "registered pid=%d lang=%s\n", proc.PID, msg.LanguageID)
 
-	go io.Copy(proc.Stdin, conn)  // neovim → LSP
-	go io.Copy(conn, proc.Stdout) // LSP → neovim
+	go io.Copy(proc.Stdin, conn) // neovim → LSP
+
+	// LSP → neovim: timestamp each response
+	go func() {
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := proc.Stdout.Read(buf)
+			if n > 0 {
+				server.LastResponse = time.Now()
+				conn.Write(buf[:n])
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	return true // proxy owns conn now
 }
 
 func (d *Daemon) handleDetach(conn net.Conn, msg DetachMsg) {
@@ -114,6 +133,12 @@ func (d *Daemon) handleDetach(conn net.Conn, msg DetachMsg) {
 	if !ok {
 		fmt.Fprintf(conn, "error: no server for lang=%s\n", msg.LanguageID)
 		return
+	}
+
+	if msg.URI != "" {
+		server.Process.SendNotification("textDocument/didClose", map[string]interface{}{
+			"textDocument": map[string]string{"uri": msg.URI},
+		})
 	}
 
 	refs := d.registry.DecrRef(key)
@@ -154,9 +179,21 @@ func (d *Daemon) handleConn(conn net.Conn) {
 		}
 		switch msg.Method {
 		case "attach":
-			// extract params[0] as map[string]interface{}
+			var a AttachMsg
+			if err := h.DecodeParam(&a, msg.Params[0]); err != nil {
+				fmt.Fprintf(conn, "error: decode attach: %s\n", err)
+				continue
+			}
+			if d.handleAttach(conn, a) {
+				return // proxy owns conn — stop reading control messages
+			}
 		case "detach":
-			// same
+			var a DetachMsg
+			if err := h.DecodeParam(&a, msg.Params[0]); err != nil {
+				fmt.Fprintf(conn, "error: decode detach: %s\n", err)
+				continue
+			}
+			d.handleDetach(conn, a)
 		default:
 			fmt.Fprintf(conn, "error: unknown method: %s\n", msg.Method)
 		}

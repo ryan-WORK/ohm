@@ -1,0 +1,2 @@
+-- Auto-loaded by Neovim. Does nothing unless the user calls require("ohm").setup().
+-- This file exists so lazy.nvim can detect the plugin and manage its lifecycle.

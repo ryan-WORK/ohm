@@ -27,7 +27,9 @@ type Handler struct {
 }
 
 func NewHandler() *Handler {
-	return &Handler{}
+	h := &Handler{}
+	h.mh.RawToString = true
+	return h
 }
 
 // Decode reads one msgpack-rpc frame from r.
@@ -44,9 +46,9 @@ func (h *Handler) Decode(r io.Reader) (*Message, error) {
 		return nil, fmt.Errorf("message too short: %d elements", len(raw))
 	}
 
-	msgType, ok := raw[0].(uint64)
+	msgType, ok := toUint64(raw[0])
 	if !ok {
-		return nil, fmt.Errorf("invalid message type field")
+		return nil, fmt.Errorf("invalid message type field: %T", raw[0])
 	}
 
 	msg := &Message{Type: int(msgType)}
@@ -64,7 +66,7 @@ func (h *Handler) Decode(r io.Reader) (*Message, error) {
 		if len(raw) < 4 {
 			return nil, fmt.Errorf("request too short")
 		}
-		if id, ok := raw[1].(uint64); ok {
+		if id, ok := toUint64(raw[1]); ok {
 			msg.MsgID = uint32(id)
 		}
 		msg.Method, _ = raw[2].(string)
@@ -77,6 +79,42 @@ func (h *Handler) Decode(r io.Reader) (*Message, error) {
 	}
 
 	return msg, nil
+}
+
+// toUint64 converts any integer type to uint64.
+// ugorji/go/codec decodes small positive integers as int8, not uint64.
+func toUint64(v interface{}) (uint64, bool) {
+	switch n := v.(type) {
+	case uint64:
+		return n, true
+	case uint32:
+		return uint64(n), true
+	case uint16:
+		return uint64(n), true
+	case uint8:
+		return uint64(n), true
+	case int64:
+		if n >= 0 {
+			return uint64(n), true
+		}
+	case int32:
+		if n >= 0 {
+			return uint64(n), true
+		}
+	case int16:
+		if n >= 0 {
+			return uint64(n), true
+		}
+	case int8:
+		if n >= 0 {
+			return uint64(n), true
+		}
+	case int:
+		if n >= 0 {
+			return uint64(n), true
+		}
+	}
+	return 0, false
 }
 
 func (h *Handler) DecodeParam(dst interface{}, src interface{}) error {
