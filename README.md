@@ -40,6 +40,28 @@ Neovim instances (any number)
 
 ### lazy.nvim — pre-built binary (recommended)
 
+**Step 1** — download the binary for your platform:
+
+```bash
+# Linux x86_64
+curl -L https://github.com/ryan-WORK/ohm/releases/latest/download/ohm-linux-amd64 -o ~/.local/bin/ohm
+
+# Linux arm64
+curl -L https://github.com/ryan-WORK/ohm/releases/latest/download/ohm-linux-arm64 -o ~/.local/bin/ohm
+
+# macOS Apple Silicon
+curl -L https://github.com/ryan-WORK/ohm/releases/latest/download/ohm-darwin-arm64 -o ~/.local/bin/ohm
+
+# macOS Intel
+curl -L https://github.com/ryan-WORK/ohm/releases/latest/download/ohm-darwin-amd64 -o ~/.local/bin/ohm
+
+chmod +x ~/.local/bin/ohm
+```
+
+Make sure `~/.local/bin` is on your `PATH`. Verify with `ohm --help`.
+
+**Step 2** — add the plugin (no `build` hook needed):
+
 ```lua
 {
   "ryan-WORK/ohm",
@@ -49,9 +71,9 @@ Neovim instances (any number)
 }
 ```
 
-Download the binary for your platform from [Releases](https://github.com/ryan-WORK/ohm/releases) and place it in `~/.local/share/nvim/ohm/bin/ohm` (or anywhere on your PATH).
-
 ### lazy.nvim — build from source
+
+Requires Go 1.21+.
 
 ```lua
 {
@@ -63,27 +85,24 @@ Download the binary for your platform from [Releases](https://github.com/ryan-WO
 }
 ```
 
-Requires Go on your machine. `build.sh` compiles the binary into `bin/ohm` on install and update.
+`build.sh` compiles the binary into `bin/ohm` inside the plugin directory on install and update.
 
 ### mason.nvim
 
-> mason registry submission in progress — not available yet.
+> mason registry submission in progress — project needs more stars.
 
-Once merged:
-
-```
-:MasonInstall ohm
-```
-
-### Manual
+### Manual binary install
 
 ```bash
-git clone https://github.com/ryan-WORK/ohm
-cd ohm
-./build.sh
+# download
+curl -L https://github.com/ryan-WORK/ohm/releases/latest/download/ohm-linux-amd64 -o ohm
+chmod +x ohm
+
+# verify checksum (replace hash with value from checksums.txt on the release page)
+echo "<sha256>  ohm" | sha256sum -c
 ```
 
-Place `bin/ohm` on your PATH or pass the path explicitly:
+Pass the path explicitly if not on `PATH`:
 
 ```lua
 require("ohm").setup({ binary = "/path/to/ohm" })
