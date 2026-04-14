@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 520" width="500" height="520">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="55%">
+      <stop offset="0%" stop-color="#16213e"/>
+      <stop offset="100%" stop-color="#0a0a1a"/>
+    </radialGradient>
+    <radialGradient id="auraGrad" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.3"/>
+      <stop offset="60%" stop-color="#4f46e5" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#4f46e5" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="shirtGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="45%" stop-color="#ec4899"/>
+      <stop offset="100%" stop-color="#f97316"/>
+    </linearGradient>
+    <radialGradient id="skinGrad" cx="40%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#f5c6a0"/>
+      <stop offset="100%" stop-color="#d4956a"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="500" height="520" fill="url(#bgGrad)" rx="24"/>
+
+  <!-- Aura glow -->
+  <ellipse cx="250" cy="295" rx="205" ry="195" fill="url(#auraGrad)"/>
+  <ellipse cx="250" cy="295" rx="200" ry="190" fill="none" stroke="#7c3aed" stroke-width="1" opacity="0.18"/>
+  <ellipse cx="250" cy="295" rx="168" ry="158" fill="none" stroke="#7c3aed" stroke-width="1" opacity="0.22"/>
+  <ellipse cx="250" cy="295" rx="136" ry="126" fill="none" stroke="#a855f7" stroke-width="1" opacity="0.28"/>
+
+  <!-- Floating labels -->
+  <text x="52" y="118" font-family="monospace" font-size="14" fill="#00ff88" opacity="0.5">$_</text>
+  <text x="392" y="148" font-family="sans-serif" font-size="24" fill="#f472b6" opacity="0.55">☮</text>
+  <text x="40" y="308" font-family="monospace" font-size="11" fill="#fbbf24" opacity="0.45">.sock</text>
+  <text x="408" y="288" font-family="monospace" font-size="11" fill="#60a5fa" opacity="0.45">LSP</text>
+  <text x="62" y="198" font-family="monospace" font-size="12" fill="#c084fc" opacity="0.42">∿ ohm</text>
+  <text x="408" y="375" font-family="sans-serif" font-size="16" fill="#34d399" opacity="0.45">∞</text>
+  <text x="392" y="212" font-family="sans-serif" font-size="14" fill="#fbbf24" opacity="0.45">✦</text>
+  <text x="52" y="388" font-family="sans-serif" font-size="14" fill="#f97316" opacity="0.45">✦</text>
+
+  <!-- Sparkle dots -->
+  <circle cx="92"  cy="158" r="2.5" fill="#ffd93d" opacity="0.7"/>
+  <circle cx="408" cy="238" r="2"   fill="#ff6b6b" opacity="0.6"/>
+  <circle cx="75"  cy="268" r="1.8" fill="#00ff88" opacity="0.6"/>
+  <circle cx="422" cy="328" r="2.5" fill="#c084fc" opacity="0.65"/>
+  <circle cx="108" cy="422" r="1.8" fill="#6bceff" opacity="0.55"/>
+  <circle cx="392" cy="432" r="1.8" fill="#ffd93d" opacity="0.55"/>
+  <circle cx="142" cy="132" r="1.5" fill="#f472b6" opacity="0.5"/>
+  <circle cx="358" cy="122" r="1.5" fill="#34d399" opacity="0.5"/>
+
+  <!-- Hair back layer -->
+  <path d="M196 168 Q166 188 154 245 Q142 300 148 375 Q165 380 172 364 Q166 305 176 252 Q184 212 202 186 Z" fill="#2d1b0e"/>
+  <path d="M304 168 Q334 188 346 245 Q358 300 352 375 Q335 380 328 364 Q334 305 324 252 Q316 212 298 186 Z" fill="#2d1b0e"/>
+
+  <!-- Legs lotus base -->
+  <path d="M172 344 Q140 354 116 362 Q114 378 142 375 Q175 372 196 357 Z" fill="#d4956a"/>
+  <path d="M328 344 Q360 354 384 362 Q386 378 358 375 Q325 372 304 357 Z" fill="#d4956a"/>
+  <ellipse cx="250" cy="362" rx="112" ry="34" fill="#d4956a"/>
+  <!-- Dark pants under -->
+  <ellipse cx="250" cy="360" rx="108" ry="30" fill="#1e1b4b"/>
+  <!-- Feet -->
+  <ellipse cx="142" cy="370" rx="28" ry="13" fill="#d4956a"/>
+  <ellipse cx="358" cy="370" rx="28" ry="13" fill="#d4956a"/>
+
+  <!-- Torso / tie-dye shirt -->
+  <path d="M183 242 Q168 264 166 314 Q168 348 250 350 Q332 348 334 314 Q332 264 317 242 Q286 237 250 237 Q214 237 183 242 Z" fill="url(#shirtGrad)"/>
+  <!-- Tie-dye swirl overlays -->
+  <circle cx="212" cy="272" r="24" fill="#fbbf24" opacity="0.22"/>
+  <circle cx="282" cy="294" r="20" fill="#00ff88" opacity="0.18"/>
+  <circle cx="226" cy="318" r="16" fill="#f472b6" opacity="0.18"/>
+  <circle cx="270" cy="264" r="13" fill="#60a5fa" opacity="0.2"/>
+  <!-- Peace sign on shirt -->
+  <circle cx="250" cy="288" r="19" fill="none" stroke="rgba(255,255,255,0.32)" stroke-width="2"/>
+  <line x1="250" y1="269" x2="250" y2="307" stroke="rgba(255,255,255,0.32)" stroke-width="2"/>
+  <line x1="250" y1="307" x2="236" y2="294" stroke="rgba(255,255,255,0.32)" stroke-width="2"/>
+  <line x1="250" y1="307" x2="264" y2="294" stroke="rgba(255,255,255,0.32)" stroke-width="2"/>
+
+  <!-- Arms -->
+  <path d="M188 258 Q164 298 150 348" stroke="#d4956a" stroke-width="22" stroke-linecap="round" fill="none"/>
+  <path d="M312 258 Q336 298 350 348" stroke="#d4956a" stroke-width="22" stroke-linecap="round" fill="none"/>
+  <!-- Shirt sleeves over arms -->
+  <path d="M188 258 Q172 282 162 310" stroke="#ec4899" stroke-width="16" stroke-linecap="round" fill="none" opacity="0.85"/>
+  <path d="M312 258 Q328 282 338 310" stroke="#7c3aed" stroke-width="16" stroke-linecap="round" fill="none" opacity="0.85"/>
+  <!-- Hands -->
+  <circle cx="148" cy="350" r="14" fill="#d4956a"/>
+  <circle cx="140" cy="342" r="8"  fill="#d4956a"/>
+  <circle cx="352" cy="350" r="14" fill="#d4956a"/>
+  <circle cx="360" cy="342" r="8"  fill="#d4956a"/>
+
+  <!-- Neck -->
+  <path d="M234 230 Q250 236 266 230 L268 248 Q250 255 232 248 Z" fill="#d4956a"/>
+
+  <!-- Head -->
+  <ellipse cx="250" cy="184" rx="56" ry="59" fill="url(#skinGrad)"/>
+
+  <!-- Hair top -->
+  <path d="M195 168 Q210 130 250 124 Q290 130 305 168 Q286 150 250 148 Q214 150 195 168Z" fill="#2d1b0e"/>
+
+  <!-- Headband -->
+  <path d="M196 175 Q250 160 304 175 Q299 188 250 181 Q201 188 196 175Z" fill="#f97316"/>
+  <path d="M196 175 Q250 166 304 175 Q299 170 250 168 Q201 170 196 175Z" fill="#fbbf24" opacity="0.38"/>
+  <!-- Gems -->
+  <circle cx="250" cy="170" r="6.5" fill="#fbbf24"/>
+  <circle cx="250" cy="170" r="3.5" fill="#ef4444"/>
+  <circle cx="220" cy="176" r="3.5" fill="#34d399"/>
+  <circle cx="280" cy="176" r="3.5" fill="#34d399"/>
+
+  <!-- Third eye -->
+  <circle cx="250" cy="187" r="5.5" fill="#a855f7"/>
+  <circle cx="250" cy="187" r="2.8" fill="#fbbf24"/>
+
+  <!-- Eyes closed -->
+  <path d="M223 198 Q231 193 240 198" stroke="#4a3728" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <path d="M260 198 Q269 193 277 198" stroke="#4a3728" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <!-- Lashes -->
+  <line x1="225" y1="198" x2="224" y2="201" stroke="#4a3728" stroke-width="1.2"/>
+  <line x1="231" y1="195" x2="231" y2="198" stroke="#4a3728" stroke-width="1.2"/>
+  <line x1="238" y1="198" x2="239" y2="201" stroke="#4a3728" stroke-width="1.2"/>
+  <line x1="262" y1="198" x2="261" y2="201" stroke="#4a3728" stroke-width="1.2"/>
+  <line x1="269" y1="195" x2="269" y2="198" stroke="#4a3728" stroke-width="1.2"/>
+  <line x1="275" y1="198" x2="276" y2="201" stroke="#4a3728" stroke-width="1.2"/>
+
+  <!-- Nose -->
+  <path d="M246 206 Q250 214 254 206" stroke="#c8866a" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+
+  <!-- Smile -->
+  <path d="M234 222 Q250 235 266 222" stroke="#c8866a" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+
+  <!-- Rosy cheeks -->
+  <ellipse cx="224" cy="212" rx="13" ry="8" fill="#f472b6" opacity="0.18"/>
+  <ellipse cx="276" cy="212" rx="13" ry="8" fill="#f472b6" opacity="0.18"/>
+
+  <!-- Front hair wisps -->
+  <path d="M198 174 Q190 198 188 218" stroke="#2d1b0e" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <path d="M302 174 Q310 198 312 218" stroke="#2d1b0e" stroke-width="3" stroke-linecap="round" fill="none"/>
+
+  <!-- Title -->
+  <text x="250" y="466" font-family="Georgia, serif" font-size="30" fill="#a78bfa" opacity="0.92" text-anchor="middle" letter-spacing="10">Ω ohm</text>
+  <text x="250" y="490" font-family="monospace" font-size="11" fill="#6b7280" text-anchor="middle" letter-spacing="2">one server. no resistance.</text>
+</svg>
