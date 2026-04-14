@@ -67,6 +67,10 @@ Requires Go on your machine. `build.sh` compiles the binary into `bin/ohm` on in
 
 ### mason.nvim
 
+> mason registry submission in progress — not available yet.
+
+Once merged:
+
 ```
 :MasonInstall ohm
 ```
