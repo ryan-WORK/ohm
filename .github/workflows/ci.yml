@@ -41,8 +41,11 @@ jobs:
           GOOS=linux  GOARCH=arm64 go build -o bin/ohm-linux-arm64  .
           GOOS=darwin GOARCH=amd64 go build -o bin/ohm-darwin-amd64 .
           GOOS=darwin GOARCH=arm64 go build -o bin/ohm-darwin-arm64 .
+          cd bin && sha256sum ohm-* > checksums.txt
 
       - name: release
         uses: softprops/action-gh-release@v2
         with:
-          files: bin/ohm-*
+          files: |
+            bin/ohm-*
+            bin/checksums.txt
