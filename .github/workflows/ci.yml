@@ -45,8 +45,10 @@ jobs:
           cd bin && sha256sum ohm-* > checksums.txt
 
       - name: release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            bin/ohm-*
-            bin/checksums.txt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create ${{ github.ref_name }} \
+            bin/ohm-* bin/checksums.txt \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
