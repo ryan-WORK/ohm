@@ -1,5 +1,9 @@
 # ohm
 
+<p align="center">
+  <img src="assets/banner.svg" width="320" alt="ohm — meditating hippie daemon"/>
+</p>
+
 > one server. no resistance.
 
 A persistent LSP process manager daemon for Neovim. Fixes memory bloat, stuck diagnostics, monorepo server duplication, and session degradation — the recurring pain points in Neovim's LSP lifecycle.
