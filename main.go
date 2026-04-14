@@ -4,27 +4,48 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 
 	"github.com/ryan-WORK/ohm/daemon"
 )
 
+type daemonArgs struct {
+	socketPath string
+	debug      bool
+}
+
+func parseDaemonArgs(args []string) daemonArgs {
+	debug := slices.Contains(args, "--debug")
+	args = slices.DeleteFunc(args, func(s string) bool { return s == "--debug" })
+	socket := "./tmp/ohm.sock"
+	if len(args) > 0 {
+		socket = args[0]
+	}
+	return daemonArgs{socketPath: socket, debug: debug}
+}
+
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "--client" {
-		if err := daemon.RunClient(os.Args[2:]); err != nil {
+	args := os.Args[1:]
+
+	if len(args) > 0 && args[0] == "--client" {
+		if err := daemon.RunClient(args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "ohm-client:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
+	a := parseDaemonArgs(args)
+
+	level := slog.LevelWarn
+	if a.debug {
+		level = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+
 	slog.Info("ohm starting")
 
-	socketPath := "./tmp/ohm.sock"
-	if len(os.Args) > 1 {
-		socketPath = os.Args[1]
-	}
-
-	if err := daemon.Start(socketPath); err != nil {
+	if err := daemon.Start(a.socketPath); err != nil {
 		slog.Error("daemon error", "err", err)
 		os.Exit(1)
 	}

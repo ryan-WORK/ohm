@@ -1,3 +1,4 @@
+---
 name: ohm
 description: LSP process manager daemon — multiplexes multiple Neovim sessions onto shared LSP servers.
 homepage: https://github.com/ryan-WORK/ohm
@@ -7,15 +8,19 @@ languages: []
 categories:
   - LSP
 source:
-  id: pkg:github/ryan-WORK/ohm@v${version}
+  id: pkg:github/ryan-WORK/ohm@v0.1.0
   asset:
     - target: linux_x64
       file: ohm-linux-amd64
+      checksum: "sha256:7e77dae3ce9d653613e6f7759d0e79385e136fc4c450e437e175feb69507ac13"
     - target: linux_arm64
       file: ohm-linux-arm64
+      checksum: "sha256:c4a98e4410df74bb4f23d45a6ad19a1fc82de5640fa80d8db2e8ba55ad9c399f"
     - target: darwin_x64
       file: ohm-darwin-amd64
+      checksum: "sha256:aa8ae24f457073ee4dfc4dd56d98dc9353acd5ab2555a1e3ba23c4cdf2bd9633"
     - target: darwin_arm64
       file: ohm-darwin-arm64
+      checksum: "sha256:c5fe8ec0d6492857379271f1435722c3e10450d8b050d285296cb3a315ad8922"
   bin:
     ohm: "{{source.asset}}"
