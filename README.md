@@ -6,32 +6,48 @@ A persistent LSP process manager daemon for Neovim. Fixes memory bloat, stuck di
 
 ## The Problem
 
-Neovim's LSP integration starts a new server per session, leaks memory, leaves stuck diagnostics on detach, and spawns duplicate servers in monorepos. This is a systems problem. ohm solves it at the daemon layer.
+Neovim starts a new LSP server per session, leaks memory, leaves stuck diagnostics on detach, and spawns duplicate servers in monorepos. ohm solves it at the daemon layer.
 
 ## How It Works
 
 ```
-Neovim (Lua shim)
-      ↕  msgpack-rpc over unix socket
-  ohm daemon (Go)
-      ↕  LSP protocol (JSON-RPC over stdio)
+Neovim instances (any number)
+      ↕  stdio (LSP JSON-RPC via ohm --client bridge)
+  ohm daemon — fan-out multiplexer, request ID rewriting
+      ↕  stdio (LSP JSON-RPC)
   LSP servers (gopls, rust-analyzer, tsserver, ...)
 ```
 
-- **Registry** — deduplicates LSP servers by `{root_dir, language_id}`. One server per project, shared across buffers.
-- **Ref counting** — tracks attached buffers. Server stays alive while any buffer is attached.
-- **Grace period** — when refs hit 0, waits 10s before killing. Reattach within the window cancels the kill.
+- **Shared servers** — one LSP process per `{root_dir, language}` pair, shared across all Neovim sessions.
+- **Fan-out multiplexer** — rewrites request IDs per client, routes responses back to the correct session.
+- **Ref counting** — tracks attached buffers. Server stays alive while any buffer is open.
+- **Grace period** — when refs hit 0, waits 10s before killing. Reopen a file within the window to cancel.
 - **Diagnostic fence** — sends `textDocument/didClose` before detach to prevent stuck diagnostics.
+- **Respawn** — crashed servers are automatically restarted without losing the proxy socket.
 - **Watchdog** — kills servers exceeding 1500MB RSS or frozen for 5+ minutes.
+- **Shutdown interception** — intercepts client `shutdown`/`exit` so individual session closes don't kill the shared server.
 
 ## Requirements
 
-- Go 1.21+
 - Neovim 0.9+
+- Go 1.21+ (only if building from source)
 
 ## Install
 
-### lazy.nvim
+### lazy.nvim — pre-built binary (recommended)
+
+```lua
+{
+  "ryan-WORK/ohm",
+  config = function()
+    require("ohm").setup()
+  end,
+}
+```
+
+Download the binary for your platform from [Releases](https://github.com/ryan-WORK/ohm/releases) and place it in `~/.local/share/nvim/ohm/bin/ohm` (or anywhere on your PATH).
+
+### lazy.nvim — build from source
 
 ```lua
 {
@@ -43,7 +59,13 @@ Neovim (Lua shim)
 }
 ```
 
-`build.sh` compiles the Go binary into `bin/ohm` on install and update. Requires Go on your machine.
+Requires Go on your machine. `build.sh` compiles the binary into `bin/ohm` on install and update.
+
+### mason.nvim
+
+```
+:MasonInstall ohm
+```
 
 ### Manual
 
@@ -53,7 +75,11 @@ cd ohm
 ./build.sh
 ```
 
-Add `bin/ohm` to your PATH or set `binary` in the setup call.
+Place `bin/ohm` on your PATH or pass the path explicitly:
+
+```lua
+require("ohm").setup({ binary = "/path/to/ohm" })
+```
 
 ## Configuration
 
@@ -62,7 +88,7 @@ require("ohm").setup({
   -- Path to ohm binary. Auto-detected from bin/ohm in plugin dir or PATH.
   binary = nil,
 
-  -- Unix socket path. Daemon and shim must agree on this.
+  -- Unix socket path for the control channel.
   socket = vim.fn.stdpath("data") .. "/ohm.sock",
 })
 ```
@@ -71,30 +97,25 @@ require("ohm").setup({
 
 | Command | Description |
 |---------|-------------|
-| `:OhmStatus` | Show connection status and socket path |
+| `:OhmStatus` | Show active servers: PID, language, memory, refs, last response |
 | `:OhmRestart` | Stop and restart the daemon |
 
 ## Development
 
 ```bash
+# build
+go build -o bin/ohm .
+
 # run tests
 go test ./...
 
-# run daemon directly (uses ./tmp/ohm.sock)
-mkdir -p tmp && go run .
+# run daemon directly
+mkdir -p tmp && go run . tmp/ohm.sock
 
-# run daemon with custom socket
-go run . /tmp/my.sock
+# tail logs (start nvim in another terminal, then open a Go/Lua/etc file)
+# ohm logs to stderr via slog
 ```
-
-## V1 Limitations
-
-- **Single buffer per LSP proxy** — the first buffer to attach to a server gets a proxied connection. Subsequent buffers sharing the same server increment the ref count but do not get a proxy (Neovim's built-in client handles their protocol). Full fan-out multiplexing with request ID rewriting is planned for V2.
-- **No graceful shutdown** — uses SIGKILL. LSP `shutdown` + `exit` sequence planned for V2.
-- **No respawn** — watchdog kills unhealthy servers but does not restart them. Planned for V2.
-
-See [docs/ohm.md](docs/ohm.md) for full architecture and V2 roadmap.
 
 ## License
 
-GPL v3. Forks must publish their source under the same license.
+MIT
