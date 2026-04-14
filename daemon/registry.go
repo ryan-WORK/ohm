@@ -1,8 +1,9 @@
 package daemon
 
 import (
+	"net"
+	"os"
 	"sync"
-	"time"
 )
 
 type ServerKey struct {
@@ -11,10 +12,39 @@ type ServerKey struct {
 }
 
 type LSPServer struct {
-	PID          int
-	Refs         int
-	Process      *Process
-	LastResponse time.Time
+	PID         int
+	Refs        int
+	Process     *Process
+	Command     string
+	Args        []string
+	ProxySocket string
+	proxyLn     net.Listener
+
+	mu  sync.RWMutex
+	mux *Mux
+}
+
+func (s *LSPServer) GetMux() *Mux {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mux
+}
+
+func (s *LSPServer) SetMux(m *Mux) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mux = m
+}
+
+// Close shuts down the LSP server gracefully, then removes the proxy socket.
+func (s *LSPServer) Close() {
+	if s.proxyLn != nil {
+		s.proxyLn.Close()
+	}
+	s.GetMux().GracefulShutdown()
+	if s.ProxySocket != "" {
+		os.Remove(s.ProxySocket)
+	}
 }
 
 type Registry struct {
@@ -45,4 +75,22 @@ func (r *Registry) Remove(key ServerKey) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.servers, key)
+}
+
+func (r *Registry) IncrRef(key ServerKey) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s, ok := r.servers[key]; ok {
+		s.Refs++
+	}
+}
+
+func (r *Registry) DecrRef(key ServerKey) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s, ok := r.servers[key]; ok {
+		s.Refs--
+		return s.Refs
+	}
+	return 0
 }
