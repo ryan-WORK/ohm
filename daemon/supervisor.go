@@ -1,7 +1,7 @@
 package daemon
 
 import (
-	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -11,8 +11,6 @@ const (
 	watchInterval   = 30 * time.Second
 )
 
-// startWatchdog launches a goroutine that periodically checks all registered
-// LSP servers for memory bloat or frozen state, killing offenders.
 func (d *Daemon) startWatchdog() {
 	go func() {
 		for {
@@ -38,17 +36,18 @@ func (d *Daemon) checkServers() {
 
 		mb, err := server.Process.MemoryMB()
 		if err == nil && mb > memLimitMB {
-			fmt.Printf("watchdog: memory limit exceeded pid=%d lang=%s mem=%dMB — killing\n",
-				server.PID, key.LanguageID, mb)
-			server.Process.Kill()
+			slog.Warn("watchdog: memory limit exceeded, killing",
+				"pid", server.PID, "lang", key.LanguageID, "mem_mb", mb)
+			server.Close()
 			d.registry.Remove(key)
 			continue
 		}
 
-		if time.Since(server.LastResponse) > frozenThreshold {
-			fmt.Printf("watchdog: frozen server pid=%d lang=%s last_response=%s — killing\n",
-				server.PID, key.LanguageID, server.LastResponse.Format(time.RFC3339))
-			server.Process.Kill()
+		if time.Since(server.GetMux().LastResponse()) > frozenThreshold {
+			slog.Warn("watchdog: frozen server, killing",
+				"pid", server.PID, "lang", key.LanguageID,
+				"last_response", server.GetMux().LastResponse().Format(time.RFC3339))
+			server.Close()
 			d.registry.Remove(key)
 		}
 	}

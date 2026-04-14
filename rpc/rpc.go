@@ -117,6 +117,13 @@ func toUint64(v interface{}) (uint64, bool) {
 	return 0, false
 }
 
+// WriteResponse sends a msgpack-rpc type 1 (response) frame.
+func (h *Handler) WriteResponse(w io.Writer, msgID uint32, result interface{}) error {
+	msg := []interface{}{TypeResponse, msgID, nil, result}
+	enc := codec.NewEncoder(w, &h.mh)
+	return enc.Encode(msg)
+}
+
 func (h *Handler) DecodeParam(dst interface{}, src interface{}) error {
 	var buf []byte
 	enc := codec.NewEncoderBytes(&buf, &h.mh)

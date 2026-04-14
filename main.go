@@ -2,13 +2,22 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
-	// Owned
+
 	"github.com/ryan-WORK/ohm/daemon"
 )
 
 func main() {
-	fmt.Println("ohm starting")
+	if len(os.Args) > 1 && os.Args[1] == "--client" {
+		if err := daemon.RunClient(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ohm-client:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	slog.Info("ohm starting")
 
 	socketPath := "./tmp/ohm.sock"
 	if len(os.Args) > 1 {
@@ -16,7 +25,7 @@ func main() {
 	}
 
 	if err := daemon.Start(socketPath); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		slog.Error("daemon error", "err", err)
 		os.Exit(1)
 	}
 }

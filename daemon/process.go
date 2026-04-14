@@ -16,6 +16,7 @@ type Process struct {
 	PID    int
 	Stdin  io.WriteCloser
 	Stdout io.ReadCloser
+	Stderr io.ReadCloser
 }
 
 func SpawnLSP(command string, args ...string) (*Process, error) {
@@ -29,6 +30,10 @@ func SpawnLSP(command string, args ...string) (*Process, error) {
 	if err != nil {
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stderr pipe: %w", err)
+	}
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("spawn %s: %w", command, err)
@@ -39,6 +44,7 @@ func SpawnLSP(command string, args ...string) (*Process, error) {
 		PID:    cmd.Process.Pid,
 		Stdin:  stdin,
 		Stdout: stdout,
+		Stderr: stderr,
 	}, nil
 }
 

@@ -1,10 +1,13 @@
 package daemon
 
 import (
+	"bufio"
+	"crypto/sha256"
 	"fmt"
-	"io"
+	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -12,9 +15,10 @@ import (
 )
 
 type Daemon struct {
-	registry    *Registry
-	pendingKill map[ServerKey]*time.Timer
-	mu          sync.Mutex
+	registry      *Registry
+	pendingKill   map[ServerKey]*time.Timer
+	mu            sync.Mutex
+	controlSocket string
 }
 
 type DetachMsg struct {
@@ -23,7 +27,6 @@ type DetachMsg struct {
 	URI        string `codec:"uri"`
 }
 
-
 type AttachMsg struct {
 	RootDir    string   `codec:"root_dir"`
 	LanguageID string   `codec:"language_id"`
@@ -31,7 +34,23 @@ type AttachMsg struct {
 	Args       []string `codec:"args"`
 }
 
+// ServerStatus is returned by the "status" RPC call.
+type ServerStatus struct {
+	PID          int    `codec:"pid"`
+	Lang         string `codec:"lang"`
+	RootDir      string `codec:"root_dir"`
+	MemoryMB     int    `codec:"memory_mb"`
+	Refs         int    `codec:"refs"`
+	LastResponse string `codec:"last_response"`
+}
+
 func Start(socketPath string) error {
+	// If another daemon is already listening, exit cleanly — don't clobber it.
+	if conn, err := net.Dial("unix", socketPath); err == nil {
+		conn.Close()
+		slog.Info("daemon already running, exiting", "socket", socketPath)
+		return nil
+	}
 	os.Remove(socketPath)
 
 	ln, err := net.Listen("unix", socketPath)
@@ -41,11 +60,12 @@ func Start(socketPath string) error {
 	defer ln.Close()
 
 	d := &Daemon{
-		registry:    NewRegistry(),
-		pendingKill: make(map[ServerKey]*time.Timer),
+		registry:      NewRegistry(),
+		pendingKill:   make(map[ServerKey]*time.Timer),
+		controlSocket: socketPath,
 	}
 
-	fmt.Println("listening on", socketPath)
+	slog.Info("listening", "socket", socketPath)
 	d.startWatchdog()
 
 	for {
@@ -57,81 +77,139 @@ func Start(socketPath string) error {
 	}
 }
 
-func (r *Registry) IncrRef(key ServerKey) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if s, ok := r.servers[key]; ok {
-		s.Refs++
-	}
-}
-
-func (r *Registry) DecrRef(key ServerKey) int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if s, ok := r.servers[key]; ok {
-		s.Refs--
-		return s.Refs
-	}
-	return 0
-}
-
-// handleAttach returns true if proxy goroutines were started and now own conn.
-// The caller must return immediately when true — do not read from conn again.
-func (d *Daemon) handleAttach(conn net.Conn, msg AttachMsg) bool {
+// handleAttach spawns or reuses an LSP server and returns the proxy socket path.
+func (d *Daemon) handleAttach(msg AttachMsg) (string, error) {
 	key := ServerKey{RootDir: msg.RootDir, LanguageID: msg.LanguageID}
 
-	// cancel pending kill if one is waiting
 	d.mu.Lock()
 	if timer, ok := d.pendingKill[key]; ok {
 		timer.Stop()
 		delete(d.pendingKill, key)
-		fmt.Fprintf(conn, "cancelled pending kill lang=%s\n", msg.LanguageID)
+		slog.Info("cancelled pending kill", "lang", msg.LanguageID)
 	}
 	d.mu.Unlock()
 
-	// reuse: server already running, just increment refs.
-	// Connection closes — Neovim's LSP client talks directly to the existing server.
 	if existing, ok := d.registry.Get(key); ok {
 		d.registry.IncrRef(key)
-		fmt.Fprintf(conn, "reused pid=%d lang=%s refs=%d\n", existing.PID, msg.LanguageID, existing.Refs)
-		return false
+		slog.Info("reused", "pid", existing.PID, "lang", msg.LanguageID, "refs", existing.Refs)
+		return existing.ProxySocket, nil
 	}
 
 	proc, err := SpawnLSP(msg.Command, msg.Args...)
 	if err != nil {
-		fmt.Fprintf(conn, "error: spawn: %s\n", err)
-		return false
+		return "", fmt.Errorf("spawn: %w", err)
 	}
-	server := &LSPServer{PID: proc.PID, Refs: 1, Process: proc, LastResponse: time.Now()}
+
+	go captureStderr(proc, msg.LanguageID)
+
+	proxyPath := d.proxySocketPath(key)
+	mux := newMux(proc)
+
+	server := &LSPServer{
+		PID:         proc.PID,
+		Refs:        1,
+		Process:     proc,
+		Command:     msg.Command,
+		Args:        msg.Args,
+		ProxySocket: proxyPath,
+	}
+	server.SetMux(mux)
 	d.registry.Register(key, server)
-	fmt.Fprintf(conn, "registered pid=%d lang=%s\n", proc.PID, msg.LanguageID)
 
-	go io.Copy(proc.Stdin, conn) // neovim → LSP
+	mux.onExit = func() { d.respawnServer(key) }
 
-	// LSP → neovim: timestamp each response
-	go func() {
-		buf := make([]byte, 32*1024)
-		for {
-			n, err := proc.Stdout.Read(buf)
-			if n > 0 {
-				server.LastResponse = time.Now()
-				conn.Write(buf[:n])
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
+	slog.Info("registered", "pid", proc.PID, "lang", msg.LanguageID, "proxy", proxyPath)
 
-	return true // proxy owns conn now
+	go mux.Broadcast()
+
+	// Block until proxy socket is bound so the path is usable immediately.
+	ready := make(chan error, 1)
+	go d.listenProxy(server, proxyPath, ready)
+	if err := <-ready; err != nil {
+		server.Process.Kill()
+		d.registry.Remove(key)
+		return "", fmt.Errorf("proxy socket: %w", err)
+	}
+
+	return proxyPath, nil
 }
 
-func (d *Daemon) handleDetach(conn net.Conn, msg DetachMsg) {
+func (d *Daemon) respawnServer(key ServerKey) {
+	server, ok := d.registry.Get(key)
+	if !ok {
+		return
+	}
+
+	slog.Info("respawning", "lang", key.LanguageID, "prev_pid", server.PID)
+
+	proc, err := SpawnLSP(server.Command, server.Args...)
+	if err != nil {
+		slog.Error("respawn failed", "lang", key.LanguageID, "err", err)
+		if server.proxyLn != nil {
+			server.proxyLn.Close()
+		}
+		os.Remove(server.ProxySocket)
+		d.registry.Remove(key)
+		return
+	}
+
+	go captureStderr(proc, key.LanguageID)
+
+	mux := newMux(proc)
+	mux.onExit = func() { d.respawnServer(key) }
+
+	server.mu.Lock()
+	server.PID = proc.PID
+	server.Process = proc
+	server.mux = mux
+	server.mu.Unlock()
+
+	go mux.Broadcast()
+
+	slog.Info("respawned", "lang", key.LanguageID, "new_pid", proc.PID)
+}
+
+func captureStderr(proc *Process, lang string) {
+	if proc.Stderr == nil {
+		return
+	}
+	scanner := bufio.NewScanner(proc.Stderr)
+	for scanner.Scan() {
+		slog.Warn("lsp stderr", "lang", lang, "pid", proc.PID, "line", scanner.Text())
+	}
+}
+
+func (d *Daemon) proxySocketPath(key ServerKey) string {
+	h := sha256.Sum256([]byte(key.RootDir + "|" + key.LanguageID))
+	name := fmt.Sprintf("ohm-%s-%x.sock", key.LanguageID, h[:4])
+	return filepath.Join(filepath.Dir(d.controlSocket), name)
+}
+
+func (d *Daemon) listenProxy(server *LSPServer, socketPath string, ready chan<- error) {
+	os.Remove(socketPath)
+	ln, err := net.Listen("unix", socketPath)
+	if err != nil {
+		ready <- err
+		return
+	}
+	server.proxyLn = ln
+	ready <- nil
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		server.GetMux().AddClient(conn)
+	}
+}
+
+func (d *Daemon) handleDetach(msg DetachMsg) {
 	key := ServerKey{RootDir: msg.RootDir, LanguageID: msg.LanguageID}
 
 	server, ok := d.registry.Get(key)
 	if !ok {
-		fmt.Fprintf(conn, "error: no server for lang=%s\n", msg.LanguageID)
+		slog.Warn("detach: no server", "lang", msg.LanguageID)
 		return
 	}
 
@@ -143,33 +221,52 @@ func (d *Daemon) handleDetach(conn net.Conn, msg DetachMsg) {
 
 	refs := d.registry.DecrRef(key)
 	if refs <= 0 {
-		fmt.Fprintf(conn, "grace period started pid=%d lang=%s\n", server.PID, msg.LanguageID)
-
+		d.mu.Lock()
+		if _, already := d.pendingKill[key]; already {
+			d.mu.Unlock()
+			slog.Info("detach: kill already pending", "lang", msg.LanguageID)
+			return
+		}
+		slog.Info("grace period started", "pid", server.PID, "lang", msg.LanguageID)
 		timer := time.AfterFunc(10*time.Second, func() {
 			d.mu.Lock()
 			delete(d.pendingKill, key)
 			d.mu.Unlock()
 
-			proc, err := os.FindProcess(server.PID)
-			if err == nil {
-				proc.Kill()
-			}
+			server.Close()
 			d.registry.Remove(key)
-			fmt.Printf("grace expired: killed pid=%d lang=%s\n", server.PID, msg.LanguageID)
+			slog.Info("grace expired: killed", "pid", server.PID, "lang", msg.LanguageID)
 		})
-
-		d.mu.Lock()
 		d.pendingKill[key] = timer
 		d.mu.Unlock()
 		return
 	}
 
-	fmt.Fprintf(conn, "detached lang=%s refs=%d\n", msg.LanguageID, refs)
+	slog.Info("detached", "lang", msg.LanguageID, "refs", refs)
+}
+
+func (d *Daemon) collectStatus() []ServerStatus {
+	d.registry.mu.Lock()
+	defer d.registry.mu.Unlock()
+
+	result := make([]ServerStatus, 0, len(d.registry.servers))
+	for key, server := range d.registry.servers {
+		mb, _ := server.Process.MemoryMB()
+		result = append(result, ServerStatus{
+			PID:          server.PID,
+			Lang:         key.LanguageID,
+			RootDir:      key.RootDir,
+			MemoryMB:     mb,
+			Refs:         server.Refs,
+			LastResponse: server.GetMux().LastResponse().Format(time.RFC3339),
+		})
+	}
+	return result
 }
 
 func (d *Daemon) handleConn(conn net.Conn) {
 	defer conn.Close()
-	conn.Write([]byte("ohm connected\n"))
+	slog.Info("client connected")
 
 	h := rpc.NewHandler()
 	for {
@@ -181,21 +278,31 @@ func (d *Daemon) handleConn(conn net.Conn) {
 		case "attach":
 			var a AttachMsg
 			if err := h.DecodeParam(&a, msg.Params[0]); err != nil {
-				fmt.Fprintf(conn, "error: decode attach: %s\n", err)
+				slog.Error("decode attach", "err", err)
+				h.WriteResponse(conn, msg.MsgID, nil)
 				continue
 			}
-			if d.handleAttach(conn, a) {
-				return // proxy owns conn — stop reading control messages
+			socketPath, err := d.handleAttach(a)
+			if err != nil {
+				slog.Error("attach", "err", err)
+				h.WriteResponse(conn, msg.MsgID, nil)
+				continue
 			}
+			h.WriteResponse(conn, msg.MsgID, socketPath)
+
 		case "detach":
 			var a DetachMsg
 			if err := h.DecodeParam(&a, msg.Params[0]); err != nil {
-				fmt.Fprintf(conn, "error: decode detach: %s\n", err)
+				slog.Error("decode detach", "err", err)
 				continue
 			}
-			d.handleDetach(conn, a)
+			d.handleDetach(a)
+
+		case "status":
+			h.WriteResponse(conn, msg.MsgID, d.collectStatus())
+
 		default:
-			fmt.Fprintf(conn, "error: unknown method: %s\n", msg.Method)
+			slog.Warn("unknown method", "method", msg.Method)
 		}
 	}
 }

@@ -2,13 +2,12 @@ package daemon
 
 import (
 	"testing"
-	"time"
 )
 
 func TestRegistry_RegisterAndGet(t *testing.T) {
 	r := NewRegistry()
 	key := ServerKey{RootDir: "/tmp/proj", LanguageID: "go"}
-	server := &LSPServer{PID: 1234, Refs: 1, LastResponse: time.Now()}
+	server := &LSPServer{PID: 1234, Refs: 1}
 
 	r.Register(key, server)
 
