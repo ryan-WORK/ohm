@@ -98,6 +98,9 @@ require("ohm").setup({
 
   -- Unix socket path for the control channel.
   socket = vim.fn.stdpath("data") .. "/ohm.sock",
+
+  -- Enable verbose daemon logging (useful for debugging LSP issues).
+  debug = false,
 })
 ```
 
@@ -117,11 +120,11 @@ go build -o bin/ohm .
 # run tests
 go test ./...
 
-# run daemon directly
+# run daemon (silent by default — only warns/errors surface)
 mkdir -p tmp && go run . tmp/ohm.sock
 
-# tail logs (start nvim in another terminal, then open a Go/Lua/etc file)
-# ohm logs to stderr via slog
+# run daemon with verbose logging
+mkdir -p tmp && go run . --debug tmp/ohm.sock
 ```
 
 ## License

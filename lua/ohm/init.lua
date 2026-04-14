@@ -2,8 +2,9 @@ local M = {}
 local client = require("ohm.client")
 
 local defaults = {
-	binary = nil, -- auto-detected from plugin dir or PATH
+	binary = nil,  -- auto-detected from bin/ohm in plugin dir or PATH
 	socket = vim.fn.stdpath("data") .. "/ohm.sock",
+	debug  = false, -- pass --debug to daemon for verbose logging
 }
 
 local job_id = nil
@@ -23,7 +24,8 @@ local function find_binary()
 end
 
 local function spawn_daemon(bin)
-	job_id = vim.fn.jobstart({ bin, config.socket }, {
+	local cmd = config.debug and { bin, "--debug", config.socket } or { bin, config.socket }
+	job_id = vim.fn.jobstart(cmd, {
 		on_stderr = function(_, data)
 			for _, line in ipairs(data) do
 				if line ~= "" then
