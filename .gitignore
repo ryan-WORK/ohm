@@ -35,3 +35,6 @@ bin/
 # .idea/
 # .vscode/
 TODO.md
+
+# ohm executable
+/ohm
