@@ -135,6 +135,16 @@ func (d *Daemon) handleAttach(msg AttachMsg) (string, error) {
 }
 
 func (d *Daemon) respawnServer(key ServerKey) {
+	// Cancel any pending kill timer — it was set for the crashed process and
+	// would otherwise fire on the newly-spawned one.
+	d.mu.Lock()
+	if timer, ok := d.pendingKill[key]; ok {
+		timer.Stop()
+		delete(d.pendingKill, key)
+		slog.Info("respawn: cancelled pending kill", "lang", key.LanguageID)
+	}
+	d.mu.Unlock()
+
 	server, ok := d.registry.Get(key)
 	if !ok {
 		return
@@ -179,6 +189,8 @@ func captureStderr(proc *Process, lang string) {
 	}
 }
 
+// proxySocketPath returns a stable socket path for the per-server LSP proxy.
+// The 4-byte hash prefix is for uniqueness across root+lang pairs, not security.
 func (d *Daemon) proxySocketPath(key ServerKey) string {
 	h := sha256.Sum256([]byte(key.RootDir + "|" + key.LanguageID))
 	name := fmt.Sprintf("ohm-%s-%x.sock", key.LanguageID, h[:4])
@@ -276,6 +288,11 @@ func (d *Daemon) handleConn(conn net.Conn) {
 		}
 		switch msg.Method {
 		case "attach":
+			if len(msg.Params) == 0 {
+				slog.Error("attach: missing params")
+				h.WriteResponse(conn, msg.MsgID, nil)
+				continue
+			}
 			var a AttachMsg
 			if err := h.DecodeParam(&a, msg.Params[0]); err != nil {
 				slog.Error("decode attach", "err", err)
@@ -291,6 +308,10 @@ func (d *Daemon) handleConn(conn net.Conn) {
 			h.WriteResponse(conn, msg.MsgID, socketPath)
 
 		case "detach":
+			if len(msg.Params) == 0 {
+				slog.Error("detach: missing params")
+				continue
+			}
 			var a DetachMsg
 			if err := h.DecodeParam(&a, msg.Params[0]); err != nil {
 				slog.Error("decode detach", "err", err)

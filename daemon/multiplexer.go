@@ -34,6 +34,10 @@ func (c *Client) sendLoop() {
 	defer c.conn.Close()
 	for body := range c.sendCh {
 		if err := WriteFrame(c.conn, body); err != nil {
+			// Close conn immediately so serveClient's ReadFrame returns,
+			// which triggers removeClient → shutdown → channel close.
+			// Without this, the drain loop below would block indefinitely.
+			c.conn.Close()
 			for range c.sendCh {
 			}
 			return
@@ -84,18 +88,23 @@ type Mux struct {
 
 	lastNs atomic.Int64 // UnixNano of last LSP response, read by supervisor
 
-	// initResponse caches the initialize response body (with global ID).
-	// Once set, new clients get this instead of a real initialize round-trip.
-	initMu       sync.RWMutex
+	// initResponse caches the initialize response body (stored with the global
+	// rewritten ID; the original client ID is substituted on each send).
+	// initInFlight gates the single real initialize round-trip; concurrent
+	// callers wait on initReady, which is closed when the response arrives.
+	initMu       sync.Mutex
 	initResponse []byte
+	initInFlight bool
+	initReady    chan struct{} // closed when initResponse is populated
 
 	onExit func() // called when LSP stdout closes
 }
 
 func newMux(proc *Process) *Mux {
 	m := &Mux{
-		proc:    proc,
-		pending: make(map[uint64]*pendingReq),
+		proc:      proc,
+		pending:   make(map[uint64]*pendingReq),
+		initReady: make(chan struct{}),
 	}
 	m.lastNs.Store(time.Now().UnixNano())
 	return m
@@ -154,15 +163,31 @@ func (m *Mux) serveClient(c *Client) {
 				continue
 			}
 
-			// initialize: if already done, return cached response immediately.
-			m.initMu.RLock()
-			cached := m.initResponse
-			m.initMu.RUnlock()
-
-			if p.method == "initialize" && cached != nil {
-				out := rewriteIDRaw(cached, p.rawID)
-				c.write(out)
-				continue
+			// initialize: serialize all callers so only one round-trip reaches
+			// the LSP server. Concurrent callers wait on initReady.
+			if p.method == "initialize" {
+				m.initMu.Lock()
+				switch {
+				case m.initResponse != nil:
+					cached := m.initResponse
+					m.initMu.Unlock()
+					c.write(rewriteIDRaw(cached, p.rawID))
+					continue
+				case m.initInFlight:
+					m.initMu.Unlock()
+					<-m.initReady
+					m.initMu.Lock()
+					cached := m.initResponse
+					m.initMu.Unlock()
+					if cached != nil {
+						c.write(rewriteIDRaw(cached, p.rawID))
+					}
+					continue
+				default:
+					m.initInFlight = true
+					m.initMu.Unlock()
+					// fall through: forward this one initialize to the server
+				}
 			}
 
 			globalID := m.nextID.Add(1)
@@ -217,11 +242,12 @@ func (m *Mux) Broadcast() {
 				if ok {
 					if req.client != nil {
 						out := rewriteIDRaw(body, req.originalID)
-						// Cache the initialize response for future clients.
+						// Cache the initialize response and unblock any concurrent waiters.
 						if req.method == "initialize" {
 							m.initMu.Lock()
 							if m.initResponse == nil {
 								m.initResponse = body // keep global ID; rewrite on send
+								close(m.initReady)
 							}
 							m.initMu.Unlock()
 						}
