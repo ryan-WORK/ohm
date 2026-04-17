@@ -1,0 +1,57 @@
+name: label-release
+
+# Fires when a PR merges into main. If the PR carries a release:patch,
+# release:minor, or release:major label, this job bumps the semver tag and
+# pushes it — which triggers the release job in ci.yml automatically.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  tag:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # need full tag history to find the latest version
+
+      - name: determine bump
+        id: bump
+        run: |
+          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
+          if echo "$LABELS" | grep -q "release:major"; then
+            echo "bump=major" >> $GITHUB_OUTPUT
+          elif echo "$LABELS" | grep -q "release:minor"; then
+            echo "bump=minor" >> $GITHUB_OUTPUT
+          elif echo "$LABELS" | grep -q "release:patch"; then
+            echo "bump=patch" >> $GITHUB_OUTPUT
+          else
+            echo "bump=none" >> $GITHUB_OUTPUT
+          fi
+
+      - name: compute and push tag
+        if: steps.bump.outputs.bump != 'none'
+        run: |
+          LATEST=$(git tag -l 'v*' --sort=-version:refname | head -1)
+          LATEST=${LATEST:-v0.0.0}
+          MAJOR=$(echo ${LATEST#v} | cut -d. -f1)
+          MINOR=$(echo ${LATEST#v} | cut -d. -f2)
+          PATCH=$(echo ${LATEST#v} | cut -d. -f3)
+
+          case "${{ steps.bump.outputs.bump }}" in
+            major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR+1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH+1)) ;;
+          esac
+
+          NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "Tagging $NEW_TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$NEW_TAG"
+          git push origin "$NEW_TAG"
