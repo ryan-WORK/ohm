@@ -7,6 +7,105 @@ import (
 	"github.com/ugorji/go/codec"
 )
 
+func TestWriteResponse_roundtrip(t *testing.T) {
+	h := NewHandler()
+	var buf bytes.Buffer
+
+	if err := h.WriteResponse(&buf, 42, "proxy-path"); err != nil {
+		t.Fatalf("WriteResponse: %v", err)
+	}
+
+	var raw []interface{}
+	dec := codec.NewDecoder(&buf, &h.mh)
+	if err := dec.Decode(&raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(raw) != 4 {
+		t.Fatalf("expected 4 elements, got %d", len(raw))
+	}
+	typ, _ := toUint64(raw[0])
+	if typ != TypeResponse {
+		t.Errorf("type: want %d, got %d", TypeResponse, typ)
+	}
+	msgID, _ := toUint64(raw[1])
+	if msgID != 42 {
+		t.Errorf("msgid: want 42, got %d", msgID)
+	}
+	if raw[2] != nil {
+		t.Errorf("error field: want nil, got %v", raw[2])
+	}
+	if raw[3] != "proxy-path" {
+		t.Errorf("result: want proxy-path, got %v", raw[3])
+	}
+}
+
+func TestWriteResponse_nilResult(t *testing.T) {
+	h := NewHandler()
+	var buf bytes.Buffer
+	if err := h.WriteResponse(&buf, 1, nil); err != nil {
+		t.Fatalf("WriteResponse: %v", err)
+	}
+	var raw []interface{}
+	dec := codec.NewDecoder(&buf, &h.mh)
+	if err := dec.Decode(&raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if raw[3] != nil {
+		t.Errorf("result: want nil, got %v", raw[3])
+	}
+}
+
+func TestToUint64(t *testing.T) {
+	cases := []struct {
+		in   interface{}
+		want uint64
+		ok   bool
+	}{
+		{uint64(10), 10, true},
+		{uint32(10), 10, true},
+		{uint16(10), 10, true},
+		{uint8(10), 10, true},
+		{int64(10), 10, true},
+		{int32(10), 10, true},
+		{int16(10), 10, true},
+		{int8(10), 10, true},
+		{int(10), 10, true},
+		{int64(-1), 0, false},
+		{int8(-1), 0, false},
+		{"nope", 0, false},
+		{nil, 0, false},
+	}
+	for _, tc := range cases {
+		got, ok := toUint64(tc.in)
+		if ok != tc.ok {
+			t.Errorf("toUint64(%T(%v)): ok=%v, want %v", tc.in, tc.in, ok, tc.ok)
+		}
+		if ok && got != tc.want {
+			t.Errorf("toUint64(%T(%v)): got %d, want %d", tc.in, tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestDecode_UnknownType(t *testing.T) {
+	raw := []interface{}{uint64(9), "method", []interface{}{}}
+	r := encodeMsg(t, raw)
+	h := NewHandler()
+	_, err := h.Decode(r)
+	if err == nil {
+		t.Fatal("expected error for unknown message type")
+	}
+}
+
+func TestDecode_TooShort(t *testing.T) {
+	raw := []interface{}{uint64(0), uint64(1)} // request missing method+params
+	r := encodeMsg(t, raw)
+	h := NewHandler()
+	_, err := h.Decode(r)
+	if err == nil {
+		t.Fatal("expected error for too-short request")
+	}
+}
+
 func encodeMsg(t *testing.T, v interface{}) *bytes.Reader {
 	t.Helper()
 	var mh codec.MsgpackHandle
