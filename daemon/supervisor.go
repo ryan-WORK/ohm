@@ -6,11 +6,14 @@ import (
 )
 
 const (
-	memLimitMB      = 1500
-	frozenThreshold = 5 * time.Minute
+	memLimitMB      = 1500          // kill server if RSS exceeds this
+	frozenThreshold = 5 * time.Minute // kill server if no response received in this window
 	watchInterval   = 30 * time.Second
 )
 
+// startWatchdog launches a background goroutine that periodically checks each
+// registered LSP server for runaway memory usage or a frozen response stream.
+// Servers that fail either check are killed; mux.onExit triggers a respawn.
 func (d *Daemon) startWatchdog() {
 	go func() {
 		for {

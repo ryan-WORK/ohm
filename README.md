@@ -6,11 +6,7 @@
 
 > one server. no resistance.
 
-A persistent LSP process manager daemon for Neovim. Fixes memory bloat, stuck diagnostics, monorepo server duplication, and session degradation — the recurring pain points in Neovim's LSP lifecycle.
-
-## The Problem
-
-Neovim starts a new LSP server per session, leaks memory, leaves stuck diagnostics on detach, and spawns duplicate servers in monorepos. ohm solves it at the daemon layer.
+A persistent LSP process manager daemon for Neovim. Neovim starts a fresh server per session — ohm replaces that with one shared server per `{root_dir, language}` pair, fixing memory bloat, stuck diagnostics, and monorepo duplication at the daemon layer.
 
 ## How It Works
 
@@ -28,7 +24,7 @@ Neovim instances (any number)
 - **Grace period** — when refs hit 0, waits 10s before killing. Reopen a file within the window to cancel.
 - **Diagnostic fence** — sends `textDocument/didClose` before detach to prevent stuck diagnostics.
 - **Respawn** — crashed servers are automatically restarted without losing the proxy socket.
-- **Watchdog** — kills servers exceeding 1500MB RSS or frozen for 5+ minutes.
+- **Watchdog** — kills runaway or frozen servers automatically.
 - **Shutdown interception** — intercepts client `shutdown`/`exit` so individual session closes don't kill the shared server.
 
 ## Requirements
@@ -145,6 +141,10 @@ mkdir -p tmp && go run . tmp/ohm.sock
 # run daemon with verbose logging
 mkdir -p tmp && go run . --debug tmp/ohm.sock
 ```
+
+## Architecture
+
+See [docs/architecture.md](docs/architecture.md) for a deep dive: two-socket design, request flow, ID rewriting, initialize caching, respawn, and the concurrency model.
 
 ## License
 

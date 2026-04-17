@@ -89,6 +89,7 @@ func RunClient(args []string) error {
 }
 
 func parseClientArgs(args []string) (socket, root, lang string, cmd []string, err error) {
+	hasSep := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--socket":
@@ -110,8 +111,9 @@ func parseClientArgs(args []string) (socket, root, lang string, cmd []string, er
 			}
 			lang = args[i]
 		case "--":
+			hasSep = true
 			cmd = args[i+1:]
-			return
+			i = len(args) // consumed; exit loop to run validation below
 		}
 	}
 	if socket == "" {
@@ -120,7 +122,7 @@ func parseClientArgs(args []string) (socket, root, lang string, cmd []string, er
 		err = fmt.Errorf("missing --root")
 	} else if lang == "" {
 		err = fmt.Errorf("missing --lang")
-	} else {
+	} else if !hasSep {
 		err = fmt.Errorf("missing -- <cmd>")
 	}
 	return
